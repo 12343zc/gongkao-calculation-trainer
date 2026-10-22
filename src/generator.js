@@ -4,7 +4,7 @@ export const MODULES = [
   {id:'add', letter:'A', name:'基础加减', desc:'进位、借位与凑整补偿', mark:'把基础算稳', subs:[['mixed','随机加减'],['add2','两位数 · 不进位'],['carry2','两位数 · 个位进位'],['sum2','多个两位数相加'],['sub2','两位数 · 不退位'],['borrow2','两位数 · 个位退位'],['ten','跨整十减法'],['add3','三位数 · 连续进位'],['sub3','三位数 · 连续借位'],['zero','跨零借位'],['comp','凑整补偿'],['chain','连续加减']]},
   {id:'multiply',letter:'B',name:'乘法训练',desc:'进位运算与接近整十整百',mark:'减少中间失误',subs:[['mixed','随机乘法'],['2x1','两位数 × 一位数'],['2x2','两位数 × 两位数'],['3x1','三位数 × 一位数'],['3x2','三位数 × 两位数'],['carry','乘法进位专项'],['near','接近整十、整百'],['digits','乘积位数判断']]},
   {id:'divide',letter:'C',name:'除法与试商',desc:'有限小数、估商与有效数字',mark:'重点练习',subs:[['mixed','随机精确除法'],['3/1','三位数 ÷ 一位数'],['3/2','三位数 ÷ 两位数'],['3/3','三位数 ÷ 三位数'],['4/2','四位数 ÷ 两位数'],['4/3','四位数 ÷ 三位数'],['decimal','带小数的除法'],['scaled','同时缩放的除法'],['range','估商 · 数量级'],['sig','商的有效数字']]},
-  {id:'magnitude',letter:'D',name:'数量级判断',desc:'先看位数，再移动小数点',mark:'守住数量级',subs:[['mixed','整数与小数混合'],['division','除法数量级'],['multiplication','乘法数量级']]},
+  {id:'magnitude',letter:'D',name:'数量级判断',desc:'输入估算值，自选误差范围',mark:'从量级到准确估值',subs:[['mixed','乘除估值 · 自选误差'],['division','除法估值 · 自选误差'],['multiplication','乘法估值 · 自选误差'],['range','基础数量级范围（十倍区间）']]},
   {id:'unit',letter:'E',name:'单位换算',desc:'万、亿与百分数的统一',mark:'不再差一万倍',subs:[['mixed','随机基础换算'],['money','元 / 万元 / 亿元'],['people','人 / 万人 / 亿人'],['weight','吨 / 万吨 / 亿吨'],['distance','千米 / 万千米'],['percent','百分数 / 小数 / 倍数'],['combined','带单位的乘除']]},
   {id:'estimate',letter:'F',name:'截位与估算',desc:'两位、三位有效数字与误差',mark:'用对计算精度',subs:[['mixed','乘除截位估算'],['division','除法截位估算'],['multiplication','乘法截位估算'],['sig','原数的有效数字']]}
 ];
@@ -62,6 +62,10 @@ function magnitude(settings,rng,module='magnitude') {
   const op=settings.sub==='division'?'÷':settings.sub==='multiplication'?'×':pick(['÷','×'],rng);
   const a=div(frac(digits(3,rng)),frac(10**integer(0,3,rng))),b=div(frac(digits(integer(1,3,rng),rng)),frac(10**integer(0,3,rng)));
   const answer=op==='÷'?div(a,b):mul(a,b),k=order(answer);
+  if(module==='magnitude' && settings.sub!=='range') {
+    const tolerance=toleranceFor(settings,'0.05');
+    return base(module,settings.sub,`${format(a)} ${op} ${format(b)}`,answer,{estimate:true,tolerance,approx:answer,instruction:`输入估算值 · 相对误差 ≤ ${Number(tolerance)*100}%${tolerance==='0'?' · 需精确计算':''}`,explanation:`先确认小数点与数量级，再把估值误差控制在 ${Number(tolerance)*100}% 以内。结果${finite(answer,10)?'为':'约为'} ${format(answer)}。`});
+  }
   const power=x=>x>=0?frac(10n**BigInt(x)):frac(1n,10n**BigInt(-x));
   const label=x=>`[${format(power(x))}, ${format(power(x+1))})`;
   // Distinct half-open intervals ensure boundaries belong to one answer only.
@@ -92,10 +96,16 @@ function units(settings,rng) {
   const [from]=family[i],[to]=family[j],value=div(frac(integer(10,9999,rng)),frac(pick([1,10,100],rng))),answer=convertUnit(value,from,to);
   return base('unit',skill,`${format(value)} ${from} = ? ${to}`,answer,{unit:to,unitOptions:family.map(x=>x[0]),explanation:`1 ${family.at(-1)[0]} = ${format(scalePower(family.at(-1)[1]))} ${family[0][0]}。${format(value)} ${from} = ${format(answer)} ${to}。`});
 }
+export function toleranceFor(settings,fallback='0.05') {
+  if(settings.tolerancePercent==null)return fallback;
+  const percent=Number(settings.tolerancePercent);
+  if(!Number.isInteger(percent)||percent<0||percent>20)throw new Error('允许误差需为 0–20 的整数百分比');
+  return format(div(frac(percent),frac(100)));
+}
 function estimateQuestion(module,skill,a,b,op,settings) {
   const sig=Number(settings.sig||2),rule=settings.rule||'round',left=significant(a,sig,rule),right=significant(b,sig,rule),answer=op==='÷'?div(a,b):mul(a,b),approx=op==='÷'?div(left,right):mul(left,right);
-  const tolerance=sig===2?(rule==='truncate'?'0.12':'0.06'):(rule==='truncate'?'0.02':'0.01');
-  return base(module,skill,`${format(a)} ${op} ${format(b)}`,answer,{estimate:true,tolerance,approx,approximations:[format(left),format(right)],instruction:`各数保留 ${sig} 位有效数字 · ${rule==='truncate'?'直接截断':'四舍五入'} · 相对误差 ≤ ${Number(tolerance)*100}%`,explanation:`${format(a)} → ${format(left)}；${format(b)} → ${format(right)}。近似算式 ${format(left)} ${op} ${format(right)} ≈ ${format(approx)}。数量级随原数保留。`});
+  const tolerance=toleranceFor(settings,sig===2?(rule==='truncate'?'0.12':'0.06'):(rule==='truncate'?'0.02':'0.01'));
+  return base(module,skill,`${format(a)} ${op} ${format(b)}`,answer,{estimate:true,tolerance,approx,approximations:[format(left),format(right)],instruction:`各数保留 ${sig} 位有效数字 · ${rule==='truncate'?'直接截断':'四舍五入'} · 相对误差 ≤ ${Number(tolerance)*100}%`,explanation:`${format(a)} → ${format(left)}；${format(b)} → ${format(right)}。近似算式 ${format(left)} ${op} ${format(right)} ≈ ${format(approx)}。数量级随原数保留。参考截位结果不保证达到所选误差，必要时继续精算。`});
 }
 function estimation(settings,rng) {
   const a=div(frac(digits(integer(3,5,rng),rng)),frac(10**integer(0,3,rng)));
@@ -106,6 +116,14 @@ function estimation(settings,rng) {
 export function generate(settings,rng=Math.random) {
   const module=settings.module==='mixed'?pick(MODULES.map(x=>x.id),rng):settings.module;
   const s={...settings,sub:settings.module==='mixed'?'mixed':settings.sub};
-  return ({add:addition,multiply:multiplication,divide:division,magnitude,unit:units,estimate:estimation})[module](s,rng);
+  for(let i=0;i<20000;i++) {
+    const q=({add:addition,multiply:multiplication,divide:division,magnitude,unit:units,estimate:estimation})[module](s,rng);
+    if(q.estimate && q.tolerance==='0') {
+      if(!finite(q.answer,10))continue;
+      q.instruction='允许误差 0% · 精确计算（整数或有限小数）；截位过程仅供参考';
+    }
+    return q;
+  }
+  throw new Error('未能生成有限小数精确题，请重试');
 }
-export const DEFAULT_SETTINGS={module:'add',sub:'mixed',difficulty:'standard',count:10,timed:false,minutes:5,mode:'exact',sig:2,rule:'round'};
+export const DEFAULT_SETTINGS={module:'add',sub:'mixed',difficulty:'standard',count:10,timed:false,minutes:5,mode:'exact',sig:2,rule:'round',tolerancePercent:5};
